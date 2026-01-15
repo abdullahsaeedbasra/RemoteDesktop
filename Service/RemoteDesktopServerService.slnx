@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="RemoteDesktopServerService.vcxproj" Id="fcd9cfc4-f8d5-475e-9833-ee98976dc1a8" />
+</Solution>
