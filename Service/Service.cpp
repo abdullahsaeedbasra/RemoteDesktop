@@ -1,7 +1,6 @@
 #include "Service.h"
 #include "Logger.h"
-#include "Sender.h"
-#include "Receiver.h"
+#include "Listener.h"
 #include "ProcessManager.h"
 
 #include <tchar.h>
@@ -77,202 +76,120 @@ VOID WINAPI RemoteDesktopService::ServiceMain(DWORD, LPWSTR*)
     svc.m_Status.dwCurrentState = SERVICE_RUNNING;
     SetServiceStatus(svc.m_StatusHandle, &svc.m_Status);
 
-    /*--------------------------------------------------*/
+    HANDLE hClientConnected = CreateEvent(nullptr, FALSE, FALSE, L"ClientConnected");
+    HANDLE hClientDisconnected = CreateEvent(nullptr, FALSE, FALSE, L"ClientDisconnected");
+    HANDLE hClientDisconnectedListener = CreateEvent(nullptr, FALSE, FALSE, L"ClientDisconnectedListener");
+    Sleep(50);
 
-    HANDLE hPipe = svc.CreatePipe();
-    if (hPipe == INVALID_HANDLE_VALUE)
+    Listener* pListener = nullptr;
+    ProcessManager* pProcessManager = nullptr;
+
+    pListener = (Listener*)AfxBeginThread(RUNTIME_CLASS(Listener), THREAD_PRIORITY_NORMAL, 0, CREATE_SUSPENDED);
+    if (!pListener)
     {
-        WaitForSingleObject(svc.m_StopEvent, INFINITE);
-
+        Log("Service Main: Error in starting listener thread. Code: " + to_string(GetLastError()));
         svc.m_Status.dwCurrentState = SERVICE_STOPPED;
+        svc.m_Status.dwWin32ExitCode = GetLastError();
         SetServiceStatus(svc.m_StatusHandle, &svc.m_Status);
         WSACleanup();
-
         return;
     }
+    pListener->ResumeThread();
 
-    Sender* pSender = (Sender*)AfxBeginThread(RUNTIME_CLASS(Sender), THREAD_PRIORITY_NORMAL, 0, CREATE_SUSPENDED);
-    ProcessManager* pProcess = (ProcessManager*)AfxBeginThread(RUNTIME_CLASS(ProcessManager), THREAD_PRIORITY_NORMAL, 0, CREATE_SUSPENDED);
-    Receiver* pReceiver = (Receiver*)AfxBeginThread(RUNTIME_CLASS(Receiver), THREAD_PRIORITY_NORMAL, 0, CREATE_SUSPENDED);
+    HANDLE hEvents[3];
+    hEvents[0] = svc.m_StopEvent;
+    hEvents[1] = hClientConnected;
+    hEvents[2] = hClientDisconnected;
 
-    pSender->SetPipe(hPipe);
-    pSender->CreateClientEvent();
-    pSender->CreateStopEvent();
-    pSender->CreateStoppedEvent();
-    pSender->ResumeThread();
-
-    pReceiver->SetClientSocket(pSender->GetCLientSocket());
-    pReceiver->CreateStopEvent();
-    pReceiver->CreateStoppedEvent();
-    pReceiver->SetPipe(hPipe);
-
-    pProcess->CreateStartEvent();
-    pProcess->CreateStartFailedEvent();
-    pProcess->CreateStopEvent();
-    pProcess->CreateStoppedEvent();
-
-    HANDLE hEvents1[2];
-    hEvents1[0] = svc.m_StopEvent;
-    hEvents1[1] = pSender->GetClientEvent();
-
-    int index = WaitForMultipleObjects(2, hEvents1, FALSE, INFINITE) - WAIT_OBJECT_0;
-    Log("Client Event Index: " + to_string(index));
-
-    if (hEvents1[index] == svc.m_StopEvent)
+    while (true)
     {
-        pReceiver->ExitInstance();
-        pProcess->ExitInstance();
-        pSender->SignalStop();
+        int index = ::WaitForMultipleObjects(3, hEvents, FALSE, INFINITE) - WAIT_OBJECT_0;
+        if (index < 0 || index > 2)
+            break;
 
-        HANDLE hEvents3[3];
-        hEvents3[0] = pSender->GetStoppedEvent();
-        hEvents3[1] = pReceiver->GetStoppedEvent();
-        hEvents3[2] = pProcess->GetStoppedEvent();
-
-        WaitForMultipleObjects(3, hEvents3, TRUE, INFINITE) - WAIT_OBJECT_0;
-
-        WSACleanup();
-        svc.m_Status.dwCurrentState = SERVICE_STOPPED;
-        SetServiceStatus(svc.m_StatusHandle, &svc.m_Status);
-        Sleep(100);
-        return;
-    }
-
-    pReceiver->ResumeThread();
-    pProcess->ResumeThread();
-
-    HANDLE hEvents2[3];
-    hEvents2[0] = pProcess->GetStartEvent();
-    hEvents2[1] = pProcess->GetStartFailedEvent();
-    hEvents2[2] = svc.m_StopEvent;
-
-    index = WaitForMultipleObjects(3, hEvents2, FALSE, INFINITE) - WAIT_OBJECT_0;
-    Log("Helper Startup Event Index: " + to_string(index));
-
-    if (hEvents2[index] == svc.m_StopEvent)
-    {
-        pSender->SignalStop();
-        pReceiver->SignalStop();
-        pProcess->SignalStop();
-
-        HANDLE hEvents3[3];
-        hEvents3[0] = pSender->GetStoppedEvent();
-        hEvents3[1] = pReceiver->GetStoppedEvent();
-        hEvents3[2] = pProcess->GetStoppedEvent();
-
-        WaitForMultipleObjects(3, hEvents3, TRUE, INFINITE) - WAIT_OBJECT_0;
-
-        WSACleanup();
-        svc.m_Status.dwCurrentState = SERVICE_STOPPED;
-        SetServiceStatus(svc.m_StatusHandle, &svc.m_Status);
-        Sleep(100);
-        return;
-    }
-
-    if (hEvents2[index] == pProcess->GetStartFailedEvent())
-    {
-        Log("Helper Process Startup failed");
-        WaitForSingleObject(svc.m_StopEvent, INFINITE);
-        pSender->SignalStop();
-        pReceiver->SignalStop();
-        pProcess->SignalStop();
-
-        HANDLE hEvents3[3];
-        hEvents3[0] = pSender->GetStoppedEvent();
-        hEvents3[1] = pReceiver->GetStoppedEvent();
-        hEvents3[2] = pProcess->GetStoppedEvent();
-
-        WaitForMultipleObjects(3, hEvents3, TRUE, INFINITE) - WAIT_OBJECT_0;
-
-        WSACleanup();
-        svc.m_Status.dwCurrentState = SERVICE_STOPPED;
-        SetServiceStatus(svc.m_StatusHandle, &svc.m_Status);
-        Sleep(100);
-        return;
-    }
-
-    svc.WaitForHelper(hPipe);
-
-    WaitForSingleObject(svc.m_StopEvent, INFINITE);
-    pSender->SignalStop();
-    pReceiver->SignalStop();
-    pProcess->SignalStop();
-
-    HANDLE hEvents3[3];
-    hEvents3[0] = pSender->GetStoppedEvent();
-    hEvents3[1] = pReceiver->GetStoppedEvent();
-    hEvents3[2] = pProcess->GetStoppedEvent();
-
-    WaitForMultipleObjects(3, hEvents3, TRUE, INFINITE) - WAIT_OBJECT_0;
-
-    WSACleanup();
-    svc.m_Status.dwCurrentState = SERVICE_STOPPED;
-    SetServiceStatus(svc.m_StatusHandle, &svc.m_Status);
-    Sleep(100);
-}
-
-HANDLE RemoteDesktopService::CreatePipe()
-{
-    SECURITY_ATTRIBUTES sa{};
-    sa.nLength = sizeof(sa);
-
-    PSECURITY_DESCRIPTOR psd = (PSECURITY_DESCRIPTOR)LocalAlloc(
-        LPTR, SECURITY_DESCRIPTOR_MIN_LENGTH);
-
-    InitializeSecurityDescriptor(psd, SECURITY_DESCRIPTOR_REVISION);
-
-    SetSecurityDescriptorDacl(
-        psd,
-        TRUE,
-        NULL,
-        FALSE
-    );
-
-    sa.lpSecurityDescriptor = psd;
-    sa.bInheritHandle = FALSE;
-
-    HANDLE hPipe = CreateNamedPipeW(
-        L"\\\\.\\pipe\\MyRemoteDesktopPipe",
-        PIPE_ACCESS_DUPLEX,
-        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
-        1,
-        64 * 1024,
-        64 * 1024,
-        0,
-        &sa
-    );
-
-    if (hPipe == INVALID_HANDLE_VALUE) {
-        DWORD error = GetLastError();
-        std::string strErr = to_string(error) + ": Error in pipe creation";
-        Log(strErr);
-    }
-    else
-        Log("Pipe Creation successfull");
-
-    return hPipe;
-}
-
-BOOL RemoteDesktopService::WaitForHelper(HANDLE hPipe)
-{
-    Log("Waiting for helper to connect to pipe...");
-
-    BOOL connected = ConnectNamedPipe(hPipe, nullptr);
-
-    if (!connected)
-    {
-        DWORD err = GetLastError();
-
-        if (err == ERROR_PIPE_CONNECTED)
+        if (index == 0)
         {
-            Log("Helper connected (early connection)");
-            return TRUE;
-        }
+            Log("Service Main: Stop Event Signaled");
 
-        Log("ConnectNamedPipe failed");
-        return FALSE;
+            if (pProcessManager)
+            {
+                pProcessManager->SignalStop();
+                ::WaitForSingleObject(pProcessManager->m_hStopped, INFINITE);
+                pProcessManager = nullptr;
+            }
+
+            if (pListener)
+            {
+                pListener->SignalStop();
+                ::WaitForSingleObject(pListener->m_hStopped, INFINITE);
+                pListener = nullptr;
+            }
+
+            for (auto& handle : hEvents)
+            {
+                if (handle != nullptr)
+                {
+                    if (handle != svc.m_StopEvent)
+                    {
+                        CloseHandle(handle);
+                        handle = nullptr;
+                    }
+                }
+            }
+
+            svc.m_Status.dwCurrentState = SERVICE_STOPPED;
+            SetServiceStatus(svc.m_StatusHandle, &svc.m_Status);
+            WSACleanup();
+            Sleep(100);
+            return;
+        }
+        else if (index == 1)
+        {
+            Log("Service Main: Client Connected");
+            pProcessManager = nullptr;
+            pProcessManager = (ProcessManager*)AfxBeginThread(RUNTIME_CLASS(ProcessManager), 
+                THREAD_PRIORITY_NORMAL,
+                0, CREATE_SUSPENDED);
+
+            if (!pProcessManager)
+            {
+                Log("Service Main: Error in starting process manager thread. Code: " + to_string(GetLastError()));
+                svc.m_Status.dwCurrentState = SERVICE_STOPPED;
+                svc.m_Status.dwWin32ExitCode = GetLastError();
+                SetServiceStatus(svc.m_StatusHandle, &svc.m_Status);
+                WSACleanup();
+                return;
+            }
+            pProcessManager->SetSocket(pListener->GetSocket());
+            pProcessManager->ResumeThread();
+        }
+        else
+        {
+            Log("Service Main: Client Disconnected");
+            if (pProcessManager)
+            {
+                pProcessManager->SignalStop();
+                ::WaitForSingleObject(pProcessManager->m_hStopped, INFINITE);
+                pProcessManager = nullptr;
+            }
+            SetEvent(hClientDisconnectedListener);
+        }
     }
 
-    Log("Helper connected to pipe");
-    return TRUE;
+    Log("Service Main: Invalid Event Index.");
+    for (auto& handle : hEvents)
+    {
+        if (handle != nullptr)
+        {
+            if (handle != svc.m_StopEvent)
+            {
+                CloseHandle(handle);
+                handle = nullptr;
+            }
+        }
+    }
+    svc.m_Status.dwCurrentState = SERVICE_STOPPED;
+    svc.m_Status.dwWin32ExitCode = GetLastError();
+    SetServiceStatus(svc.m_StatusHandle, &svc.m_Status);
+    WSACleanup();
 }

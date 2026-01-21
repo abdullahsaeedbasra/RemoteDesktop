@@ -1,5 +1,7 @@
 #include "ProcessManager.h"
 #include "Logger.h"
+#include "Reader.h"
+#include "Writer.h"
 
 #include <wtsapi32.h>
 #include <userenv.h>
@@ -10,29 +12,117 @@
 
 IMPLEMENT_DYNCREATE(ProcessManager, CWinThread)
 
-ProcessManager::ProcessManager() : m_hStartEvent(INVALID_HANDLE_VALUE), m_hStartFailedEvent(INVALID_HANDLE_VALUE),
-                                   m_hStopEvent(INVALID_HANDLE_VALUE), m_hStoppedEvent(INVALID_HANDLE_VALUE)
-{ }
+ProcessManager::ProcessManager() : m_socket(INVALID_SOCKET), m_hHelperProcess(INVALID_HANDLE_VALUE),
+                                    m_hPipe(INVALID_HANDLE_VALUE)
+{
+    Log("Process Manager Constructor()");
+
+    m_hStop = CreateEvent(NULL, TRUE, FALSE, NULL);
+    m_hStopped = CreateEvent(NULL, TRUE, FALSE, NULL);
+}
 
 BOOL ProcessManager::InitInstance()
 {
+    Log("Process Manager: InitInstance()");
 	return TRUE;
 }
 
 int ProcessManager::Run()
 {
-    if (StartHelper())
-        SetEvent(m_hStartEvent);
-    else
-        SetEvent(m_hStartFailedEvent);
+    Log("Process Manager Run()");
 
-    WaitForSingleObject(m_hStopEvent, INFINITE);
+    CreatePipe();
+    if (m_hPipe == INVALID_HANDLE_VALUE)
+    {
+        SetEvent(m_hStopped);
+        return -1;
+    }
 
-	return 0;
+    if (!StartHelper())
+    {
+        Log("Error in starting helper");
+        SetEvent(m_hStopped);
+        return -1;
+    }
+
+    if (!WaitForHelper())
+    {
+        SetEvent(m_hStopped);
+        return -1;
+    }
+
+    m_pReader = (Reader*)AfxBeginThread(RUNTIME_CLASS(Reader), THREAD_PRIORITY_NORMAL, 0, CREATE_SUSPENDED);
+    m_pWriter = (Writer*)AfxBeginThread(RUNTIME_CLASS(Writer), THREAD_PRIORITY_NORMAL, 0, CREATE_SUSPENDED);
+
+    if (!m_pReader || !m_pWriter)
+    {
+        Log("Error in starting reader or writer");
+        SetEvent(m_hStopped);
+        return -1;
+    }
+
+    m_pReader->SetPipe(m_hPipe);
+    m_pReader->SetSocket(m_socket);
+    m_pWriter->SetPipe(m_hPipe);
+    m_pWriter->SetSocket(m_socket);
+    m_pReader->ResumeThread();
+    m_pWriter->ResumeThread();
+
+    ::WaitForSingleObject(m_hStop, INFINITE);
+    m_pReader->SignalStop();
+    m_pWriter->SignalStop();
+
+    HANDLE hEvents[2] = {
+        m_pReader->m_hStopped,
+        m_pWriter->m_hStopped
+    };
+
+    WaitForMultipleObjects(2, hEvents, TRUE, INFINITE);
+
+    FlushFileBuffers(m_hPipe);
+    DisconnectNamedPipe(m_hPipe);
+    CloseHandle(m_hPipe);
+    m_hPipe = INVALID_HANDLE_VALUE;
+
+    DWORD wait = WaitForSingleObject(m_hHelperProcess, 5000);
+
+    if (wait != WAIT_OBJECT_0)
+    {
+        Log("Terminating Process");
+        TerminateProcess(m_hHelperProcess, 1);
+    }
+
+    CloseHandle(m_hHelperProcess);
+    m_hHelperProcess = INVALID_HANDLE_VALUE;
+
+    SetEvent(m_hStopped);
+    return 0;
+}
+
+void ProcessManager::SignalStop()
+{
+    SetEvent(m_hStop);
+}
+
+void ProcessManager::SetSocket(const SOCKET& socket)
+{
+    m_socket = socket;
+}
+
+ProcessManager::~ProcessManager()
+{
+    Log("Process Manager Destructor()");
+    if (m_hStop != nullptr)
+        CloseHandle(m_hStop);
+    if (m_hStopped != nullptr)
+        CloseHandle(m_hStopped);
+
+    Log("Process Manager Destructor Ended");
 }
 
 BOOL ProcessManager::StartHelper()
 {
+    Log("Inside StartHelper");
     DWORD sessionId = WTSGetActiveConsoleSessionId();
     if (sessionId == 0xFFFFFFFF)
     {
@@ -74,14 +164,14 @@ BOOL ProcessManager::StartHelper()
 
     BOOL ok = CreateProcessAsUserW(
         hPrimaryToken,
-        L"D:\\Visual C++\\RemoteDesktop\\Helper\\x64\\Debug\\Helper.exe",
+        L"C:\\Projects\\RemoteDesktop\\Helper\\x64\\Debug\\Helper.exe",
         nullptr,
         nullptr,
         nullptr,
         FALSE,
         CREATE_UNICODE_ENVIRONMENT,
         env,
-        L"D:\\Visual C++\\RemoteDesktop\\Helper",
+        L"C:\\Projects\\RemoteDesktop\\Helper",
         &si,
         &pi
     );
@@ -92,58 +182,72 @@ BOOL ProcessManager::StartHelper()
     if (!ok)
         return false;
 
-    CloseHandle(pi.hProcess);
+    m_hHelperProcess = pi.hProcess;
     CloseHandle(pi.hThread);
 
     return true;
 }
 
-void ProcessManager::CreateStartEvent()
+void ProcessManager::CreatePipe()
 {
-    m_hStartEvent = CreateEvent(NULL, TRUE, FALSE, L"Helper Startup Event");
+    Log("Inside CreatePipe()");
+    SECURITY_ATTRIBUTES sa{};
+    sa.nLength = sizeof(sa);
+
+    PSECURITY_DESCRIPTOR psd = (PSECURITY_DESCRIPTOR)LocalAlloc(
+        LPTR, SECURITY_DESCRIPTOR_MIN_LENGTH);
+
+    InitializeSecurityDescriptor(psd, SECURITY_DESCRIPTOR_REVISION);
+
+    SetSecurityDescriptorDacl(
+        psd,
+        TRUE,
+        NULL,
+        FALSE
+    );
+
+    sa.lpSecurityDescriptor = psd;
+    sa.bInheritHandle = FALSE;
+    m_hPipe = CreateNamedPipeW(
+        L"\\\\.\\pipe\\MyRemoteDesktopPipe",
+        PIPE_ACCESS_DUPLEX,
+        PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+        1,
+        64 * 1024,
+        64 * 1024,
+        0,
+        &sa
+    );
+
+    if (m_hPipe == INVALID_HANDLE_VALUE) {
+        DWORD error = GetLastError();
+        std::string strErr = to_string(error) + ": Error in pipe creation";
+        Log(strErr);
+    }
+    else
+        Log("Pipe Creation successfull");
 }
 
-void ProcessManager::CreateStartFailedEvent()
+BOOL ProcessManager::WaitForHelper()
 {
-    m_hStartFailedEvent = CreateEvent(NULL, TRUE, FALSE, L"Helper Startup Failed Event");
-}
+    Log("Waiting for helper to connect to pipe...");
 
-HANDLE ProcessManager::GetStartEvent() const
-{
-    return m_hStartEvent;
-}
+    BOOL connected = ConnectNamedPipe(m_hPipe, nullptr);
 
-HANDLE ProcessManager::GetStartFailedEvent() const
-{
-    return m_hStartFailedEvent;
-}
+    if (!connected)
+    {
+        DWORD err = GetLastError();
 
-void ProcessManager::CreateStopEvent()
-{
-    m_hStopEvent = CreateEvent(NULL, TRUE, FALSE, L"StopEvent");
-}
+        if (err == ERROR_PIPE_CONNECTED)
+        {
+            Log("Helper connected (early connection)");
+            return TRUE;
+        }
 
-void ProcessManager::CreateStoppedEvent()
-{
-    m_hStoppedEvent = CreateEvent(NULL, TRUE, FALSE, L"StopEvent");
-}
+        Log("ConnectNamedPipe failed");
+        return FALSE;
+    }
 
-void ProcessManager::SignalStop()
-{
-    SetEvent(m_hStopEvent);
-}
-
-HANDLE ProcessManager::GetStoppedEvent() const
-{
-    return m_hStoppedEvent;
-}
-
-int ProcessManager::ExitInstance()
-{
-    SetEvent(m_hStoppedEvent);
-	return CWinThread::ExitInstance();
-}
-
-ProcessManager::~ProcessManager()
-{
+    Log("Helper connected to pipe");
+    return TRUE;
 }

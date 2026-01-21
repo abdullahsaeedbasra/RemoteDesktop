@@ -21,20 +21,28 @@ using namespace Gdiplus;
 #pragma comment(lib, "Ws2_32.lib")
 #pragma comment(lib, "gdiplus.lib")
 
-#pragma pack(push, 1)
-struct FramePacketHeader
+enum MessageType : uint32_t
 {
-    uint32_t frameId;
-    uint16_t packetIndex;
-    uint16_t totalPackets;
+    MSG_SCREEN = 1,
+    MSG_INPUT = 2
+};
+
+#pragma pack(push, 1)
+struct PipeMessageHeader
+{
+    uint32_t type;
+    uint32_t size;
 };
 #pragma pack(pop)
 
 IMPLEMENT_DYNCREATE(ScreenCaptureThread, CWinThread)
 
-ScreenCaptureThread::ScreenCaptureThread() : m_bRunning(FALSE), m_hPipe(INVALID_HANDLE_VALUE), m_gdiplusToken(0),
-                                             m_frameId(0), m_lastFrameTime(0), m_frameRate(0)
-{ }
+ScreenCaptureThread::ScreenCaptureThread() : m_hPipe(INVALID_HANDLE_VALUE), m_gdiplusToken(0),
+                                             m_lastFrameTime(0), m_frameRate(0)
+{ 
+    m_hStop = CreateEvent(nullptr, FALSE, FALSE, L"StopScreenCapture");
+    m_hStopped = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+}
 
 BOOL ScreenCaptureThread::InitInstance()
 {
@@ -50,11 +58,10 @@ BOOL ScreenCaptureThread::InitInstance()
 int ScreenCaptureThread::Run()
 {
     Log("ScreenCaptureThread Run Started");
-    m_bRunning = TRUE;
     m_lastFrameTime = GetTickCount64();
-    m_frameRate = 15;
+    m_frameRate = 20;
 
-    while (m_bRunning)
+    while (::WaitForSingleObject(m_hStop, 0) != WAIT_OBJECT_0)
     {
         DWORD currentTime = GetTickCount64();
         DWORD frameInterval = 1000 / m_frameRate;
@@ -78,10 +85,58 @@ int ScreenCaptureThread::Run()
     }
 
     Log("ScreenCaptureThread Run Ended");
+    SetEvent(m_hStopped);
     return 0;
 }
 
+void ScreenCaptureThread::SignalStop()
+{
+    SetEvent(m_hStop);
+}
+
+void ScreenCaptureThread::SetPipe(const HANDLE& hPipe)
+{
+    m_hPipe = hPipe;
+}
+
 void ScreenCaptureThread::SendScreenFrame()
+{
+    std::vector<BYTE> jpegData = CaptureScreenAsJpeg();
+    uint32_t jpegSize = (uint32_t)jpegData.size();
+
+    PipeMessageHeader header{};
+    header.type = MSG_SCREEN;
+    header.size = htonl(jpegSize);
+
+    DWORD written = 0;
+
+    if (!WriteFile(m_hPipe, &header, sizeof(header), &written, nullptr) ||
+        written != sizeof(header))
+    {
+        Log("Failed to write screen header");
+        return;
+    }
+
+    DWORD total = 0;
+    while (total < jpegSize)
+    {
+        DWORD chunk = std::min<DWORD>(65536u, jpegSize - total);
+        DWORD w = 0;
+
+        if (!WriteFile(m_hPipe,
+            jpegData.data() + total,
+            chunk,
+            &w,
+            nullptr))
+        {
+            Log("Pipe write failed during screen data");
+            return;
+        }
+        total += w;
+    }
+}
+
+std::vector<BYTE> ScreenCaptureThread::CaptureScreenAsJpeg()
 {
     HDC hScreenDC = GetDC(NULL);
     HDC hMemDC = CreateCompatibleDC(hScreenDC);
@@ -102,13 +157,14 @@ void ScreenCaptureThread::SendScreenFrame()
     CLSID jpegClsid;
     if (GetEncoderClsid(L"image/jpeg", &jpegClsid) < 0)
     {
+        std::vector<BYTE> vec(1, 1);
         Log("JPEG encoder not found");
         stream->Release();
         SelectObject(hMemDC, oldObj);
         DeleteObject(hBitmap);
         DeleteDC(hMemDC);
         ReleaseDC(NULL, hScreenDC);
-        return;
+        return vec;
     }
 
     EncoderParameters params{};
@@ -140,61 +196,7 @@ void ScreenCaptureThread::SendScreenFrame()
     DeleteDC(hMemDC);
     ReleaseDC(NULL, hScreenDC);
 
-    uint32_t frameSizeNetwork = htonl(jpegSize);
-
-    DWORD bytesWritten = 0;
-    BOOL ok = WriteFile(
-        m_hPipe,
-        &frameSizeNetwork,
-        sizeof(frameSizeNetwork),
-        &bytesWritten,
-        NULL
-    );
-
-    if (!ok || bytesWritten != sizeof(frameSizeNetwork))
-    {
-        Log("Failed to write frame size to pipe. Error: " + std::to_string(GetLastError()));
-        return;
-    }
-
-    DWORD totalWritten = 0;
-
-    while (totalWritten < jpegSize)
-    {
-        DWORD remaining = jpegSize - totalWritten;
-        DWORD chunkSize = min(remaining, 65536UL);
-
-        DWORD bytesWritten = 0;
-        BOOL ok = WriteFile(
-            m_hPipe,
-            jpegData.data() + totalWritten,
-            chunkSize,
-            &bytesWritten,
-            NULL
-        );
-
-        if (!ok)
-        {
-            DWORD error = GetLastError();
-
-            if (error == ERROR_NO_DATA || error == ERROR_BROKEN_PIPE)
-            {
-                Log("Pipe disconnected");
-                return;
-            }
-
-            Log("Error writing frame data to pipe: " + std::to_string(error));
-            return;
-        }
-
-        totalWritten += bytesWritten;
-    }
-
-    string logMsg = "Frame " + to_string(m_frameId) +
-        " sent (" + to_string(jpegSize) + " bytes)";
-    Log(logMsg);
-
-    m_frameId++;
+    return jpegData;
 }
 
 int ScreenCaptureThread::GetEncoderClsid(const WCHAR* format, CLSID* pClsid)
@@ -223,17 +225,6 @@ int ScreenCaptureThread::GetEncoderClsid(const WCHAR* format, CLSID* pClsid)
     return -1;
 }
 
-void ScreenCaptureThread::SetPipe(const HANDLE& hPipe)
-{
-	m_hPipe = hPipe;
-}
-
-int ScreenCaptureThread::ExitInstance()
-{
-	return CWinThread::ExitInstance();
-}
-
 ScreenCaptureThread::~ScreenCaptureThread()
 {
-	m_bRunning = FALSE;
 }

@@ -1,5 +1,7 @@
 #pragma once
 #include <afxwin.h>
+#include <vector>
+
 class ScreenCaptureThread : public CWinThread
 {
 	DECLARE_DYNCREATE(ScreenCaptureThread)
@@ -7,23 +9,22 @@ class ScreenCaptureThread : public CWinThread
 public:
 	virtual BOOL InitInstance();
 	virtual int Run();
-	virtual int ExitInstance();
 
 	void SetPipe(const HANDLE& hPipe);
+	void SignalStop();
+	HANDLE m_hStop;
+	HANDLE m_hStopped;
 
 private:
 	ScreenCaptureThread();
 	~ScreenCaptureThread();
 
+	std::vector<BYTE> CaptureScreenAsJpeg();
 	void SendScreenFrame();
 	int GetEncoderClsid(const WCHAR* format, CLSID* pClsid);
 
-	BOOL m_bRunning;
 	HANDLE m_hPipe;
-
 	ULONG_PTR m_gdiplusToken;
-	uint32_t m_frameId;
-
 	ULONGLONG m_lastFrameTime;
 	UINT m_frameRate;
 };

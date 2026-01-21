@@ -10,6 +10,9 @@
 #include <afxwin.h>
 #include <windows.h>
 
+class Reader;
+class Writer;
+
 class ProcessManager : public CWinThread
 {
 	DECLARE_DYNCREATE(ProcessManager)
@@ -17,26 +20,24 @@ class ProcessManager : public CWinThread
 public:
 	virtual BOOL InitInstance();
 	virtual int Run();
-	virtual int ExitInstance();
 
-	void CreateStartEvent();
-	void CreateStartFailedEvent();
-	void CreateStopEvent();
-	void CreateStoppedEvent();
+	HANDLE m_hStop;
+	HANDLE m_hStopped;
+
 	void SignalStop();
-
-	BOOL StartHelper();
-
-	HANDLE GetStoppedEvent() const;
-	HANDLE GetStartEvent() const;
-	HANDLE GetStartFailedEvent() const;
+	void SetSocket(const SOCKET& socket);
 
 private:
 	ProcessManager();
 	~ProcessManager();
 
-	HANDLE m_hStartEvent;
-	HANDLE m_hStartFailedEvent;
-	HANDLE m_hStopEvent;
-	HANDLE m_hStoppedEvent;
+	Reader* m_pReader = nullptr;
+	Writer* m_pWriter = nullptr;
+	SOCKET m_socket;
+	HANDLE m_hPipe;
+	HANDLE m_hHelperProcess;
+
+	void CreatePipe();
+	BOOL StartHelper();
+	BOOL WaitForHelper();
 };

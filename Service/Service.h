@@ -8,6 +8,7 @@
 #include <WinSock2.h>
 #include <WS2tcpip.h>
 #include <afxwin.h>
+#include <afxmt.h>
 #include <windows.h>
 
 #define SERVICE_NAME _T("RemoteDesktopServerService")
@@ -16,7 +17,6 @@ class RemoteDesktopService
 {
 public:
     static RemoteDesktopService& Instance();
-
     VOID Run();
 
 private:
@@ -25,9 +25,6 @@ private:
 
     static VOID WINAPI ServiceMain(DWORD argc, LPWSTR* argv);
     static VOID WINAPI ServiceCtrlHandler(DWORD ctrlCode);
-
-    HANDLE CreatePipe();
-    BOOL WaitForHelper(HANDLE hPipe);
 
     SERVICE_STATUS        m_Status{};
     SERVICE_STATUS_HANDLE m_StatusHandle{};

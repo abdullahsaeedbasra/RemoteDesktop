@@ -12,18 +12,42 @@ CHelperApp theApp;
 
 BOOL CHelperApp::InitInstance()
 {
+	return TRUE;
+}
+
+int CHelperApp::Run()
+{
     Log("Helper Started...");
     HANDLE hPipe = ConnectToServicePipe();
     if (hPipe != INVALID_HANDLE_VALUE)
     {
         m_pScreenThread = (ScreenCaptureThread*)AfxBeginThread(RUNTIME_CLASS(ScreenCaptureThread), THREAD_PRIORITY_NORMAL, 0,
             CREATE_SUSPENDED);
+        m_pInputReader = (InputReaderThread*)AfxBeginThread(RUNTIME_CLASS(InputReaderThread), THREAD_PRIORITY_NORMAL, 0,
+            CREATE_SUSPENDED);
         m_pScreenThread->SetPipe(hPipe);
-        m_pScreenThread->ResumeThread();
+        m_pInputReader->SetPipe(hPipe);
+        m_pInputReader->m_pScreenThread = m_pScreenThread;
 
-        ::WaitForSingleObject(m_pScreenThread->m_hThread, INFINITE);
+        m_pScreenThread->ResumeThread();
+        m_pInputReader->ResumeThread();
+
+        HANDLE hEvents[2] = {
+            m_pScreenThread->m_hStopped,
+            m_pInputReader->m_hStopped
+        };
+
+        WaitForMultipleObjects(2, hEvents, TRUE, INFINITE);
+        m_pScreenThread = nullptr;
     }
-	return TRUE;
+
+    m_pInputReader = nullptr;
+    FlushFileBuffers(hPipe);
+    CloseHandle(hPipe);
+    hPipe = INVALID_HANDLE_VALUE;
+
+    Log("Exiting");
+    return 0;
 }
 
 HANDLE CHelperApp::ConnectToServicePipe()

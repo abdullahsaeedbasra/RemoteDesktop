@@ -30,6 +30,9 @@
     <ClInclude Include="ScreenCaptureThread.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="InputReaderThread.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Helper.cpp">
@@ -42,6 +45,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="ScreenCaptureThread.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="InputReaderThread.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
