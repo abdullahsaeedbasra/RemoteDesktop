@@ -1,4 +1,6 @@
 #pragma once
+#include "Pipe.h"
+
 #include <WinSock2.h>
 #include <WS2tcpip.h>
 #include <afxwin.h>
@@ -16,7 +18,7 @@ public:
 	HANDLE m_hStopped;
 
 	void SignalStop();
-	void SetPipe(HANDLE& hPipe);
+	void SetPipe(NamedPipe* Pipe);
 	void SetSocket(const SOCKET& socket);
 
 private:
@@ -24,7 +26,7 @@ private:
 	~Reader();
 
 	SOCKET m_socket;
-	HANDLE m_hPipe;
+	NamedPipe* m_pNamedPipe = nullptr;
 
 	void SendFrameToSocket(const std::vector<BYTE>& jpeg);
 };

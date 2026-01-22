@@ -5,6 +5,8 @@
 #define NOBYTE
 #define _WINSOCKAPI_
 
+#include "Pipe.h"
+
 #include <WinSock2.h>
 #include <WS2tcpip.h>
 #include <afxwin.h>
@@ -31,10 +33,10 @@ private:
 	ProcessManager();
 	~ProcessManager();
 
+	NamedPipe* m_pNamedPipe = nullptr;
 	Reader* m_pReader = nullptr;
 	Writer* m_pWriter = nullptr;
 	SOCKET m_socket;
-	HANDLE m_hPipe;
 	HANDLE m_hHelperProcess;
 
 	void CreatePipe();

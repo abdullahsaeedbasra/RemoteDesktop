@@ -1,4 +1,6 @@
 #pragma once
+#include "Pipe.h"
+
 #include <WinSock2.h>
 #include <ws2tcpip.h>
 #include <afxwin.h>
@@ -15,7 +17,7 @@ public:
 	HANDLE m_hStopped;
 
 	void SignalStop();
-	void SetPipe(HANDLE& hPipe);
+	void SetPipe(NamedPipe* pipe);
 	void SetSocket(const SOCKET& socket);
 
 private:
@@ -23,7 +25,7 @@ private:
 	~Writer();
 
 	SOCKET m_socket;
-	HANDLE m_hPipe;
+	NamedPipe* m_pNamedPipe = nullptr;
 	HANDLE m_hClientDisconnected;
 };
 

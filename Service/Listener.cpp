@@ -112,6 +112,10 @@ int Listener::Run()
 			if (ne.lNetworkEvents & FD_CLOSE)
 			{
 				Log("Listener: Listening socket closed");
+				closesocket(m_listeningSocket);
+				m_listeningSocket = INVALID_SOCKET;
+				closesocket(m_socket);
+				m_socket = INVALID_SOCKET;
 				break;
 			}
 		}

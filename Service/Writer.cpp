@@ -3,7 +3,7 @@
 
 IMPLEMENT_DYNCREATE(Writer, CWinThread)
 
-Writer::Writer() : m_socket(INVALID_SOCKET), m_hPipe(INVALID_HANDLE_VALUE)
+Writer::Writer() : m_socket(INVALID_SOCKET)
 { 
 	Log("Writer Constructor()");
 	m_hStop = CreateEvent(NULL, TRUE, FALSE, NULL);
@@ -49,9 +49,9 @@ int Writer::Run()
 	return 0;
 }
 
-void Writer::SetPipe(HANDLE& hPipe)
+void Writer::SetPipe(NamedPipe* pipe)
 {
-	m_hPipe = hPipe;
+	m_pNamedPipe = pipe;
 }
 
 void Writer::SignalStop()

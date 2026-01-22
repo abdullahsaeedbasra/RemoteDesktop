@@ -21,20 +21,6 @@ using namespace Gdiplus;
 #pragma comment(lib, "Ws2_32.lib")
 #pragma comment(lib, "gdiplus.lib")
 
-enum MessageType : uint32_t
-{
-    MSG_SCREEN = 1,
-    MSG_INPUT = 2
-};
-
-#pragma pack(push, 1)
-struct PipeMessageHeader
-{
-    uint32_t type;
-    uint32_t size;
-};
-#pragma pack(pop)
-
 IMPLEMENT_DYNCREATE(ScreenCaptureThread, CWinThread)
 
 ScreenCaptureThread::ScreenCaptureThread() : m_hPipe(INVALID_HANDLE_VALUE), m_gdiplusToken(0),
@@ -104,14 +90,12 @@ void ScreenCaptureThread::SendScreenFrame()
     std::vector<BYTE> jpegData = CaptureScreenAsJpeg();
     uint32_t jpegSize = (uint32_t)jpegData.size();
 
-    PipeMessageHeader header{};
-    header.type = MSG_SCREEN;
-    header.size = htonl(jpegSize);
+    DWORD framSize = htonl(jpegSize);
 
     DWORD written = 0;
 
-    if (!WriteFile(m_hPipe, &header, sizeof(header), &written, nullptr) ||
-        written != sizeof(header))
+    if (!WriteFile(m_hPipe, &framSize, sizeof(framSize), &written, nullptr) ||
+        written != sizeof(framSize))
     {
         Log("Failed to write screen header");
         return;

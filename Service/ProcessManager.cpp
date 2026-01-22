@@ -12,13 +12,14 @@
 
 IMPLEMENT_DYNCREATE(ProcessManager, CWinThread)
 
-ProcessManager::ProcessManager() : m_socket(INVALID_SOCKET), m_hHelperProcess(INVALID_HANDLE_VALUE),
-                                    m_hPipe(INVALID_HANDLE_VALUE)
+ProcessManager::ProcessManager() : m_socket(INVALID_SOCKET), m_hHelperProcess(INVALID_HANDLE_VALUE)
 {
     Log("Process Manager Constructor()");
 
     m_hStop = CreateEvent(NULL, TRUE, FALSE, NULL);
     m_hStopped = CreateEvent(NULL, TRUE, FALSE, NULL);
+
+    m_pNamedPipe = new NamedPipe();
 }
 
 BOOL ProcessManager::InitInstance()
@@ -32,7 +33,7 @@ int ProcessManager::Run()
     Log("Process Manager Run()");
 
     CreatePipe();
-    if (m_hPipe == INVALID_HANDLE_VALUE)
+    if (m_pNamedPipe->handle == INVALID_HANDLE_VALUE)
     {
         SetEvent(m_hStopped);
         return -1;
@@ -61,9 +62,9 @@ int ProcessManager::Run()
         return -1;
     }
 
-    m_pReader->SetPipe(m_hPipe);
+    m_pReader->SetPipe(m_pNamedPipe);
     m_pReader->SetSocket(m_socket);
-    m_pWriter->SetPipe(m_hPipe);
+    m_pWriter->SetPipe(m_pNamedPipe);
     m_pWriter->SetSocket(m_socket);
     m_pReader->ResumeThread();
     m_pWriter->ResumeThread();
@@ -79,10 +80,10 @@ int ProcessManager::Run()
 
     WaitForMultipleObjects(2, hEvents, TRUE, INFINITE);
 
-    FlushFileBuffers(m_hPipe);
-    DisconnectNamedPipe(m_hPipe);
-    CloseHandle(m_hPipe);
-    m_hPipe = INVALID_HANDLE_VALUE;
+    FlushFileBuffers(m_pNamedPipe->handle);
+    DisconnectNamedPipe(m_pNamedPipe->handle);
+    CloseHandle(m_pNamedPipe->handle);
+    m_pNamedPipe->handle = INVALID_HANDLE_VALUE;
 
     DWORD wait = WaitForSingleObject(m_hHelperProcess, 5000);
 
@@ -116,6 +117,11 @@ ProcessManager::~ProcessManager()
         CloseHandle(m_hStop);
     if (m_hStopped != nullptr)
         CloseHandle(m_hStopped);
+    if (m_pNamedPipe)
+    {
+        delete m_pNamedPipe;
+        m_pNamedPipe = nullptr;
+    }
 
     Log("Process Manager Destructor Ended");
 }
@@ -164,14 +170,14 @@ BOOL ProcessManager::StartHelper()
 
     BOOL ok = CreateProcessAsUserW(
         hPrimaryToken,
-        L"C:\\Projects\\RemoteDesktop\\Helper\\x64\\Debug\\Helper.exe",
+        L"D:\\Visual C++\\RemoteDesktop\\Helper\\x64\\Debug\\Helper.exe",
         nullptr,
         nullptr,
         nullptr,
         FALSE,
         CREATE_UNICODE_ENVIRONMENT,
         env,
-        L"C:\\Projects\\RemoteDesktop\\Helper",
+        L"D:\\Visual C++\\RemoteDesktop\\Helper",
         &si,
         &pi
     );
@@ -208,7 +214,7 @@ void ProcessManager::CreatePipe()
 
     sa.lpSecurityDescriptor = psd;
     sa.bInheritHandle = FALSE;
-    m_hPipe = CreateNamedPipeW(
+    m_pNamedPipe->handle = CreateNamedPipeW(
         L"\\\\.\\pipe\\MyRemoteDesktopPipe",
         PIPE_ACCESS_DUPLEX,
         PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
@@ -219,7 +225,7 @@ void ProcessManager::CreatePipe()
         &sa
     );
 
-    if (m_hPipe == INVALID_HANDLE_VALUE) {
+    if (m_pNamedPipe->handle == INVALID_HANDLE_VALUE) {
         DWORD error = GetLastError();
         std::string strErr = to_string(error) + ": Error in pipe creation";
         Log(strErr);
@@ -232,7 +238,7 @@ BOOL ProcessManager::WaitForHelper()
 {
     Log("Waiting for helper to connect to pipe...");
 
-    BOOL connected = ConnectNamedPipe(m_hPipe, nullptr);
+    BOOL connected = ConnectNamedPipe(m_pNamedPipe->handle, nullptr);
 
     if (!connected)
     {

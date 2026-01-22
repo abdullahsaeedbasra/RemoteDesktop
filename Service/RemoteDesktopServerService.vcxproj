@@ -142,6 +142,7 @@
   <ItemGroup>
     <ClInclude Include="Listener.h" />
     <ClInclude Include="Logger.h" />
+    <ClInclude Include="Pipe.h" />
     <ClInclude Include="ProcessManager.h" />
     <ClInclude Include="Writer.h" />
     <ClInclude Include="Reader.h" />

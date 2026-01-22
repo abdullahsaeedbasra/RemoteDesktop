@@ -4,20 +4,6 @@
 
 IMPLEMENT_DYNCREATE(Reader, CWinThread)
 
-enum MessageType : uint32_t
-{
-    MSG_SCREEN = 1,
-    MSG_INPUT = 2
-};
-
-#pragma pack(push, 1)
-struct PipeMessageHeader
-{
-    uint32_t type;
-    uint32_t size;
-};
-#pragma pack(pop)
-
 Reader::Reader() : m_socket(INVALID_SOCKET)
 { 
     Log("Reader Constructor()");
@@ -37,18 +23,16 @@ int Reader::Run()
 
     while (WaitForSingleObject(m_hStop, 0) != WAIT_OBJECT_0)
     {
-        PipeMessageHeader header{};
+        DWORD frameSize;
         DWORD read = 0;
 
-        BOOL ok = ReadFile(
-            m_hPipe,
-            &header,
-            sizeof(header),
-            &read,
-            nullptr
-        );
+        BOOL ok;
+        {
+            CSingleLock lock(&m_pNamedPipe->csSynchronizer, TRUE);
+            ok = ReadFile(m_pNamedPipe->handle, &frameSize, sizeof(frameSize), &read, nullptr);
+        }
 
-        if (!ok || read != sizeof(header))
+        if (!ok || read != sizeof(frameSize))
         {
             DWORD err = GetLastError();
             if (err == ERROR_BROKEN_PIPE)
@@ -59,7 +43,7 @@ int Reader::Run()
             break;
         }
 
-        uint32_t size = ntohl(header.size);
+        uint32_t size = ntohl(frameSize);
 
         if (size == 0 || size > 10 * 1024 * 1024)
         {
@@ -67,37 +51,26 @@ int Reader::Run()
             break;
         }
 
-        std::vector<BYTE> payload(size);
+        std::vector<BYTE> jpegData(size);
         DWORD total = 0;
 
         while (total < size)
         {
-            DWORD r = 0;
-            ok = ReadFile(
-                m_hPipe,
-                payload.data() + total,
-                size - total,
-                &r,
-                nullptr
-            );
-
-            if (!ok || r == 0)
+            DWORD read = 0;
             {
-                Log("Pipe read failed during payload");
+                CSingleLock lock(&m_pNamedPipe->csSynchronizer, TRUE);
+                ok = ReadFile(m_pNamedPipe->handle, jpegData.data() + total, size - total, &read, nullptr);
+            }
+
+            if (!ok || read == 0)
+            {
+                Log("Pipe read failed during jpegData");
                 goto exit;
             }
 
-            total += r;
+            total += read;
         }
-
-        if (header.type == MSG_SCREEN)
-        {
-            SendFrameToSocket(payload);
-        }
-        else if (header.type == MSG_INPUT)
-        {
-            Log("Service received input message (ignored here)");
-        }
+        SendFrameToSocket(jpegData);
     }
 
 exit:
@@ -131,9 +104,9 @@ void Reader::SendFrameToSocket(const std::vector<BYTE>& jpeg)
     }
 }
 
-void Reader::SetPipe(HANDLE& hPipe)
+void Reader::SetPipe(NamedPipe* Pipe)
 {
-    m_hPipe = hPipe;
+    m_pNamedPipe = Pipe;
 }
 
 void Reader::SetSocket(const SOCKET& socket)
