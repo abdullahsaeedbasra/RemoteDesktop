@@ -24,8 +24,10 @@ private:
 	Writer();
 	~Writer();
 
+	BOOL m_bRunning;
 	SOCKET m_socket;
 	NamedPipe* m_pNamedPipe = nullptr;
 	HANDLE m_hClientDisconnected;
+	HANDLE m_hSocketEvent;
 };
 

@@ -21,26 +21,48 @@ int Writer::Run()
 {
 	Log("Writer Thread: Run()");
 
-	while (::WaitForSingleObject(m_hStop, 50) != WAIT_OBJECT_0)
+	HANDLE arrHandles[2] = { m_hStop, m_hSocketEvent };
+
+	m_bRunning = TRUE;
+	while (m_bRunning)
 	{
-		fd_set readSet;
-		FD_ZERO(&readSet);
-		FD_SET(m_socket, &readSet);
-
-		timeval timeout;
-		timeout.tv_sec = 0;
-		timeout.tv_usec = 0;
-
-		int ready = select(0, &readSet, nullptr, nullptr, &timeout);
-		if (ready > 0 && FD_ISSET(m_socket, &readSet))
+		int iIndex = ::WaitForMultipleObjects(2, arrHandles, FALSE, INFINITE) - WAIT_OBJECT_0;
+		if (iIndex == 0)
 		{
-			char buffer[512];
-			int bytes = recv(m_socket, buffer, sizeof(buffer) - 1, 0);
-			if (bytes == 0 || bytes == SOCKET_ERROR)
+
+		}
+		else if (iIndex == 1)
+		{
+			WSANETWORKEVENTS ne{};
+			WSAEnumNetworkEvents(m_socket, m_hSocketEvent, &ne);
+
+			if (ne.lNetworkEvents & FD_READ)
 			{
+				
+			}
+			else if (ne.lNetworkEvents & FD_CLOSE)
+			{
+				OVERLAPPED olForPipe = {};
+				olForPipe.hEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+				DWORD dwMsg = -1;
+				dwMsg = htonl(dwMsg);
+				DWORD dwBytesWritten = 0;
+				BOOL bRetVal = FALSE;
+				{
+					CSingleLock lock(&m_pNamedPipe->csSynchronizer, TRUE);
+					bRetVal = WriteFile(m_pNamedPipe->handle, &dwMsg, sizeof(dwMsg), &dwBytesWritten, &olForPipe);
+				}
+				::WaitForSingleObject(olForPipe.hEvent, INFINITE);
+				bRetVal = GetOverlappedResult(m_pNamedPipe->handle, &olForPipe, &dwBytesWritten, FALSE);
+
+				if (!bRetVal)
+				{
+					Log("Failed to write screen header");
+				}
+
 				SetEvent(m_hClientDisconnected);
 				::WaitForSingleObject(m_hStop, INFINITE);
-				break;
+				m_bRunning = FALSE;
 			}
 		}
 	}
@@ -62,6 +84,19 @@ void Writer::SignalStop()
 void Writer::SetSocket(const SOCKET& socket)
 {
 	m_socket = socket;
+
+	m_hSocketEvent = WSACreateEvent();
+	if (m_hSocketEvent == WSA_INVALID_EVENT)
+	{
+		Log("Writer: WSACreateEvent failed");
+		return;
+	}
+
+	if (WSAEventSelect(m_socket, m_hSocketEvent, FD_READ | FD_CLOSE) == SOCKET_ERROR)
+	{
+		Log("Writer: WSAEventSelect failed");
+		return;
+	}
 }
 
 Writer::~Writer()

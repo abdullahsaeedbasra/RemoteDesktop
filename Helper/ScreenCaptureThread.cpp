@@ -23,7 +23,7 @@ using namespace Gdiplus;
 
 IMPLEMENT_DYNCREATE(ScreenCaptureThread, CWinThread)
 
-ScreenCaptureThread::ScreenCaptureThread() : m_hPipe(INVALID_HANDLE_VALUE), m_gdiplusToken(0),
+ScreenCaptureThread::ScreenCaptureThread() : m_gdiplusToken(0),
                                              m_lastFrameTime(0), m_frameRate(0)
 { 
     m_hStop = CreateEvent(nullptr, FALSE, FALSE, L"StopScreenCapture");
@@ -78,44 +78,69 @@ int ScreenCaptureThread::Run()
 void ScreenCaptureThread::SignalStop()
 {
     SetEvent(m_hStop);
+    Log("ScreenCapture: Stop Signaled");
 }
 
-void ScreenCaptureThread::SetPipe(const HANDLE& hPipe)
+void ScreenCaptureThread::SetPipe(NamedPipe* pipe)
 {
-    m_hPipe = hPipe;
+    m_pNamedPipe = pipe;
 }
 
 void ScreenCaptureThread::SendScreenFrame()
 {
+    Log("Inside Send Screen Frame ()");
     std::vector<BYTE> jpegData = CaptureScreenAsJpeg();
+    Log("After Captureing jpeg");
+
     uint32_t jpegSize = (uint32_t)jpegData.size();
+    Log("After type casting jpeg");
 
     DWORD framSize = htonl(jpegSize);
-
-    DWORD written = 0;
-
-    if (!WriteFile(m_hPipe, &framSize, sizeof(framSize), &written, nullptr) ||
-        written != sizeof(framSize))
+    Log("After converting frame size");
+    OVERLAPPED olForPipe = {};
+    olForPipe.hEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+    DWORD dwBytesWritten = 0;
+    BOOL bSuccess = FALSE;
     {
-        Log("Failed to write screen header");
+        Log("Inside Lock block");
+        CSingleLock lock(&m_pNamedPipe->csSynchronizer, TRUE);
+        Log("Before write frame size");
+        bSuccess = WriteFile(m_pNamedPipe->handle, &framSize, sizeof(framSize), &dwBytesWritten, &olForPipe);
+        Log("After write frame size");
+    }
+    ::WaitForSingleObject(olForPipe.hEvent, INFINITE);
+    bSuccess = GetOverlappedResult(m_pNamedPipe->handle, &olForPipe, &dwBytesWritten, FALSE);
+    if (!bSuccess || dwBytesWritten != sizeof(framSize))
+    {
+        Log("Failed to write frame size on pipe");
         return;
     }
 
+    Log("Frame size written");
+
+    bSuccess = FALSE;
     DWORD total = 0;
     while (total < jpegSize)
     {
         DWORD chunk = std::min<DWORD>(65536u, jpegSize - total);
         DWORD w = 0;
 
-        if (!WriteFile(m_hPipe,
-            jpegData.data() + total,
-            chunk,
-            &w,
-            nullptr))
+        {
+            CSingleLock lock(&m_pNamedPipe->csSynchronizer, TRUE);
+            Log("Before write jpeg");
+            bSuccess = WriteFile(m_pNamedPipe->handle, jpegData.data() + total, chunk, &w, &olForPipe);
+            Log("After write jpeg");
+        }
+
+        ::WaitForSingleObject(olForPipe.hEvent, INFINITE);
+        bSuccess = GetOverlappedResult(m_pNamedPipe->handle, &olForPipe, &w, FALSE);
+
+        if (!bSuccess)
         {
             Log("Pipe write failed during screen data");
             return;
         }
+        Log("Jpeg Written");
         total += w;
     }
 }

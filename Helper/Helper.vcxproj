@@ -188,6 +188,7 @@
     <ClInclude Include="InputReaderThread.h" />
     <ClInclude Include="Logger.h" />
     <ClInclude Include="pch.h" />
+    <ClInclude Include="Pipe.h" />
     <ClInclude Include="ScreenCaptureThread.h" />
   </ItemGroup>
   <ItemGroup>

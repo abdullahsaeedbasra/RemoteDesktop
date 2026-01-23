@@ -20,60 +20,101 @@ BOOL Reader::InitInstance()
 int Reader::Run()
 {
     Log("Reader Thread started");
-
-    while (WaitForSingleObject(m_hStop, 0) != WAIT_OBJECT_0)
+    OVERLAPPED olForPipe = {};
+    olForPipe.hEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+    m_bRunning = TRUE;
+    while (m_bRunning)
     {
-        DWORD frameSize;
-        DWORD read = 0;
-
-        BOOL ok;
+        BOOL bRetVal = FALSE;
+        DWORD dwFrameSize = 0;
+        DWORD dwBytesRead = 0;
         {
+            Log("Before framze size read lock");
             CSingleLock lock(&m_pNamedPipe->csSynchronizer, TRUE);
-            ok = ReadFile(m_pNamedPipe->handle, &frameSize, sizeof(frameSize), &read, nullptr);
+            Log("Before framze size read lock");
+
+            bRetVal = ReadFile(m_pNamedPipe->handle, &dwFrameSize, sizeof(dwFrameSize), &dwBytesRead, &olForPipe);
         }
 
-        if (!ok || read != sizeof(frameSize))
+        HANDLE arrHandles[2] = { m_hStop, olForPipe.hEvent };
+        int iIndex = WaitForMultipleObjects(2, arrHandles, FALSE, INFINITE) - WAIT_OBJECT_0;
+        if (iIndex == 0)
         {
-            DWORD err = GetLastError();
-            if (err == ERROR_BROKEN_PIPE)
-                Log("Pipe closed by helper");
+            Log("Index returned 0");
+            m_bRunning = FALSE;
+        }
+        else if(iIndex == 1)
+        {
+            bRetVal = GetOverlappedResult(m_pNamedPipe->handle, &olForPipe, &dwBytesRead, FALSE);
+
+            if (!bRetVal || dwBytesRead != sizeof(dwFrameSize))
+            {
+                DWORD dwError = GetLastError();
+                if (dwError == ERROR_BROKEN_PIPE)
+                    Log("Pipe closed by helper");
+                else
+                    Log("Failed to read pipe header with error" + to_string(dwError));
+                m_bRunning = FALSE;
+            }
             else
-                Log("Failed to read pipe header");
-
-            break;
-        }
-
-        uint32_t size = ntohl(frameSize);
-
-        if (size == 0 || size > 10 * 1024 * 1024)
-        {
-            Log("Invalid message size");
-            break;
-        }
-
-        std::vector<BYTE> jpegData(size);
-        DWORD total = 0;
-
-        while (total < size)
-        {
-            DWORD read = 0;
             {
-                CSingleLock lock(&m_pNamedPipe->csSynchronizer, TRUE);
-                ok = ReadFile(m_pNamedPipe->handle, jpegData.data() + total, size - total, &read, nullptr);
-            }
+                Log("Frame size received");
+                uint32_t uiSize = ntohl(dwFrameSize);
 
-            if (!ok || read == 0)
-            {
-                Log("Pipe read failed during jpegData");
-                goto exit;
-            }
+                if (uiSize == 0 || uiSize > 10 * 1024 * 1024)
+                {
+                    Log("Invalid message size");
+                    break;
+                }
 
-            total += read;
+                std::vector<BYTE> vJpegData(uiSize);
+                DWORD dwTotal = 0;
+                BOOL bSuccess = TRUE;
+                while (dwTotal < uiSize && bSuccess)
+                {
+                    {
+                        Log("Before jpeg read lock");
+                        CSingleLock lock(&m_pNamedPipe->csSynchronizer, TRUE);
+                        Log("Before jpeg read lock");
+                        bSuccess = ReadFile(m_pNamedPipe->handle, vJpegData.data() + dwTotal, uiSize - dwTotal, &dwBytesRead, &olForPipe);
+                    }
+
+                    HANDLE arrHandles2[2] = { m_hStop, olForPipe.hEvent };
+                    int iIndex2 = WaitForMultipleObjects(2, arrHandles2, FALSE, INFINITE) - WAIT_OBJECT_0;
+
+                    if (iIndex2 == 0)
+                    {
+                        Log("Stop Called for reader");
+                        m_bRunning = FALSE;
+                    }
+                    else
+                    {
+                        bSuccess = GetOverlappedResult(m_pNamedPipe->handle, &olForPipe, &dwBytesRead, FALSE);
+                        if (!bSuccess)
+                        {
+                            Log("Pipe read failed during jpegData " + to_string(GetLastError()));
+                            m_bRunning = FALSE;
+                        }
+                        else
+                        {
+                            Log("Jpeg Read");
+                            dwTotal += dwBytesRead;
+                        }
+                    }
+                }
+                if (bSuccess)
+                {
+                    Log("Success");
+                    SendFrameToSocket(vJpegData);
+                }
+            }
         }
-        SendFrameToSocket(jpegData);
+        else
+        {
+            Log("Invalid Index");
+        }
     }
 
-exit:
     SetEvent(m_hStopped);
     return 0;
 }
@@ -87,12 +128,7 @@ void Reader::SendFrameToSocket(const std::vector<BYTE>& jpeg)
     int total = 0;
     while (total < jpeg.size())
     {
-        int sent = send(
-            m_socket,
-            (char*)jpeg.data() + total,
-            (int)(jpeg.size() - total),
-            0
-        );
+        int sent = send(m_socket, (char*)jpeg.data() + total, (int)(jpeg.size() - total), 0);
 
         if (sent <= 0)
         {

@@ -7,6 +7,7 @@
 
 #include "ScreenCaptureThread.h"
 #include "InputReaderThread.h"
+#include "Pipe.h"
 
 class CHelperApp : public CWinApp
 {
@@ -17,6 +18,7 @@ public:
 private:
 	ScreenCaptureThread* m_pScreenThread = nullptr;
 	InputReaderThread* m_pInputReader = nullptr;
+	NamedPipe* m_pNamedPipe = nullptr;
 public:
 	virtual int Run();
 };

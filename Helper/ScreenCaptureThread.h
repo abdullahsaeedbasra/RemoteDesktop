@@ -1,4 +1,5 @@
 #pragma once
+#include "Pipe.h"
 #include <afxwin.h>
 #include <vector>
 
@@ -10,7 +11,7 @@ public:
 	virtual BOOL InitInstance();
 	virtual int Run();
 
-	void SetPipe(const HANDLE& hPipe);
+	void SetPipe(NamedPipe* pipe);
 	void SignalStop();
 	HANDLE m_hStop;
 	HANDLE m_hStopped;
@@ -23,7 +24,7 @@ private:
 	void SendScreenFrame();
 	int GetEncoderClsid(const WCHAR* format, CLSID* pClsid);
 
-	HANDLE m_hPipe;
+	NamedPipe* m_pNamedPipe;
 	ULONG_PTR m_gdiplusToken;
 	ULONGLONG m_lastFrameTime;
 	UINT m_frameRate;

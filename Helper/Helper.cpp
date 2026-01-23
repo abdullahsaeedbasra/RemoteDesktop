@@ -12,21 +12,22 @@ CHelperApp theApp;
 
 BOOL CHelperApp::InitInstance()
 {
+    m_pNamedPipe = new NamedPipe();
 	return TRUE;
 }
 
 int CHelperApp::Run()
 {
     Log("Helper Started...");
-    HANDLE hPipe = ConnectToServicePipe();
-    if (hPipe != INVALID_HANDLE_VALUE)
+    m_pNamedPipe->handle = ConnectToServicePipe();
+    if (m_pNamedPipe != INVALID_HANDLE_VALUE)
     {
         m_pScreenThread = (ScreenCaptureThread*)AfxBeginThread(RUNTIME_CLASS(ScreenCaptureThread), THREAD_PRIORITY_NORMAL, 0,
             CREATE_SUSPENDED);
         m_pInputReader = (InputReaderThread*)AfxBeginThread(RUNTIME_CLASS(InputReaderThread), THREAD_PRIORITY_NORMAL, 0,
             CREATE_SUSPENDED);
-        m_pScreenThread->SetPipe(hPipe);
-        m_pInputReader->SetPipe(hPipe);
+        m_pScreenThread->SetPipe(m_pNamedPipe);
+        m_pInputReader->SetPipe(m_pNamedPipe);
         m_pInputReader->m_pScreenThread = m_pScreenThread;
 
         m_pScreenThread->ResumeThread();
@@ -38,13 +39,14 @@ int CHelperApp::Run()
         };
 
         WaitForMultipleObjects(2, hEvents, TRUE, INFINITE);
+        Log("App Stopped");
         m_pScreenThread = nullptr;
     }
 
     m_pInputReader = nullptr;
-    FlushFileBuffers(hPipe);
-    CloseHandle(hPipe);
-    hPipe = INVALID_HANDLE_VALUE;
+    FlushFileBuffers(m_pNamedPipe->handle);
+    CloseHandle(m_pNamedPipe->handle);
+    m_pNamedPipe->handle = INVALID_HANDLE_VALUE;
 
     Log("Exiting");
     return 0;
@@ -62,7 +64,7 @@ HANDLE CHelperApp::ConnectToServicePipe()
         0,
         nullptr,
         OPEN_EXISTING,
-        FILE_ATTRIBUTE_NORMAL,
+        FILE_FLAG_OVERLAPPED,
         nullptr
     );
 

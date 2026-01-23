@@ -26,6 +26,7 @@ private:
 	~Reader();
 
 	SOCKET m_socket;
+	BOOL m_bRunning;
 	NamedPipe* m_pNamedPipe = nullptr;
 
 	void SendFrameToSocket(const std::vector<BYTE>& jpeg);

@@ -69,29 +69,19 @@ int ProcessManager::Run()
     m_pReader->ResumeThread();
     m_pWriter->ResumeThread();
 
-    ::WaitForSingleObject(m_hStop, INFINITE);
-    m_pReader->SignalStop();
-    m_pWriter->SignalStop();
 
-    HANDLE hEvents[2] = {
-        m_pReader->m_hStopped,
-        m_pWriter->m_hStopped
-    };
-
-    WaitForMultipleObjects(2, hEvents, TRUE, INFINITE);
+    HANDLE arrHandles[3] = { m_hStop, m_pReader->m_hStopped, m_hHelperProcess };
+    int iIndex = ::WaitForMultipleObjects(2, arrHandles, FALSE, INFINITE) - WAIT_OBJECT_0;
+    if (iIndex == 1)
+    {
+        m_pReader->SignalStop();
+        ::WaitForSingleObject(m_pReader->m_hStopped, INFINITE);
+    }
 
     FlushFileBuffers(m_pNamedPipe->handle);
     DisconnectNamedPipe(m_pNamedPipe->handle);
     CloseHandle(m_pNamedPipe->handle);
     m_pNamedPipe->handle = INVALID_HANDLE_VALUE;
-
-    DWORD wait = WaitForSingleObject(m_hHelperProcess, 5000);
-
-    if (wait != WAIT_OBJECT_0)
-    {
-        Log("Terminating Process");
-        TerminateProcess(m_hHelperProcess, 1);
-    }
 
     CloseHandle(m_hHelperProcess);
     m_hHelperProcess = INVALID_HANDLE_VALUE;
@@ -170,14 +160,14 @@ BOOL ProcessManager::StartHelper()
 
     BOOL ok = CreateProcessAsUserW(
         hPrimaryToken,
-        L"D:\\Visual C++\\RemoteDesktop\\Helper\\x64\\Debug\\Helper.exe",
+        L"C:\\Projects\\RemoteDesktop\\Helper\\x64\\Debug\\Helper.exe",
         nullptr,
         nullptr,
         nullptr,
         FALSE,
         CREATE_UNICODE_ENVIRONMENT,
         env,
-        L"D:\\Visual C++\\RemoteDesktop\\Helper",
+        L"C:\\Projects\\RemoteDesktop\\Helper",
         &si,
         &pi
     );
@@ -216,8 +206,11 @@ void ProcessManager::CreatePipe()
     sa.bInheritHandle = FALSE;
     m_pNamedPipe->handle = CreateNamedPipeW(
         L"\\\\.\\pipe\\MyRemoteDesktopPipe",
-        PIPE_ACCESS_DUPLEX,
-        PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+        PIPE_ACCESS_DUPLEX | 
+        FILE_FLAG_OVERLAPPED,
+        PIPE_TYPE_MESSAGE | 
+        PIPE_READMODE_MESSAGE | 
+        PIPE_WAIT,
         1,
         64 * 1024,
         64 * 1024,

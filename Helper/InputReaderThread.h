@@ -1,4 +1,6 @@
 #pragma once
+#include "Pipe.h"
+
 #include <afxwin.h>
 
 class ScreenCaptureThread;
@@ -11,7 +13,7 @@ public:
 	virtual BOOL InitInstance();
 	virtual int Run();
 
-	void SetPipe(const HANDLE& pipe);
+	void SetPipe(NamedPipe* pipe);
 
 	HANDLE m_hStopped;
 	ScreenCaptureThread* m_pScreenThread = nullptr;
@@ -20,6 +22,7 @@ private:
 	InputReaderThread();
 	~InputReaderThread();
 
-	HANDLE m_hPipe;
+	BOOL m_bRunning;
+	NamedPipe* m_pNamedPipe = nullptr;
 };
 
