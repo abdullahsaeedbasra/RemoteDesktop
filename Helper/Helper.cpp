@@ -3,6 +3,7 @@
 #include "afxwinappex.h"
 #include "Helper.h"
 #include "Logger.h"
+#include "Message.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -26,6 +27,7 @@ int CHelperApp::Run()
             CREATE_SUSPENDED);
         m_pInputReader = (InputReaderThread*)AfxBeginThread(RUNTIME_CLASS(InputReaderThread), THREAD_PRIORITY_NORMAL, 0,
             CREATE_SUSPENDED);
+
         m_pScreenThread->SetPipe(m_pNamedPipe);
         m_pInputReader->SetPipe(m_pNamedPipe);
         m_pInputReader->m_pScreenThread = m_pScreenThread;
@@ -33,22 +35,19 @@ int CHelperApp::Run()
         m_pScreenThread->ResumeThread();
         m_pInputReader->ResumeThread();
 
-        HANDLE hEvents[2] = {
-            m_pScreenThread->m_hStopped,
-            m_pInputReader->m_hStopped
-        };
+        HANDLE hEvents[2] = { m_pScreenThread->m_hStopped, m_pInputReader->m_hStopped};
 
         WaitForMultipleObjects(2, hEvents, TRUE, INFINITE);
-        Log("App Stopped");
         m_pScreenThread = nullptr;
+        m_pInputReader = nullptr;
+
+        FlushFileBuffers(m_pNamedPipe->handle);
+        CloseHandle(m_pNamedPipe->handle);
+        m_pNamedPipe->handle = INVALID_HANDLE_VALUE;
     }
 
-    m_pInputReader = nullptr;
-    FlushFileBuffers(m_pNamedPipe->handle);
-    CloseHandle(m_pNamedPipe->handle);
-    m_pNamedPipe->handle = INVALID_HANDLE_VALUE;
-
     Log("Exiting");
+    Sleep(100);
     return 0;
 }
 

@@ -25,9 +25,11 @@ public:
 
 	HANDLE m_hStop;
 	HANDLE m_hStopped;
+	HANDLE m_hStopWhenClientIsConnected;
 
 	void SignalStop();
 	void SetSocket(const SOCKET& socket);
+	void SignalStopWhenClientIsConnected();
 
 private:
 	ProcessManager();
@@ -37,7 +39,6 @@ private:
 	Reader* m_pReader = nullptr;
 	Writer* m_pWriter = nullptr;
 	SOCKET m_socket;
-	HANDLE m_hHelperProcess;
 
 	void CreatePipe();
 	BOOL StartHelper();

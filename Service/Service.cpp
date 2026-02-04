@@ -84,17 +84,7 @@ VOID WINAPI RemoteDesktopService::ServiceMain(DWORD, LPWSTR*)
     Listener* pListener = nullptr;
     ProcessManager* pProcessManager = nullptr;
 
-    pListener = (Listener*)AfxBeginThread(RUNTIME_CLASS(Listener), THREAD_PRIORITY_NORMAL, 0, CREATE_SUSPENDED);
-    if (!pListener)
-    {
-        Log("Service Main: Error in starting listener thread. Code: " + to_string(GetLastError()));
-        svc.m_Status.dwCurrentState = SERVICE_STOPPED;
-        svc.m_Status.dwWin32ExitCode = GetLastError();
-        SetServiceStatus(svc.m_StatusHandle, &svc.m_Status);
-        WSACleanup();
-        return;
-    }
-    pListener->ResumeThread();
+    pListener = (Listener*)AfxBeginThread(RUNTIME_CLASS(Listener), THREAD_PRIORITY_NORMAL);
 
     HANDLE hEvents[3];
     hEvents[0] = svc.m_StopEvent;
@@ -104,8 +94,6 @@ VOID WINAPI RemoteDesktopService::ServiceMain(DWORD, LPWSTR*)
     while (true)
     {
         int index = ::WaitForMultipleObjects(3, hEvents, FALSE, INFINITE) - WAIT_OBJECT_0;
-        if (index < 0 || index > 2)
-            break;
 
         if (index == 0)
         {
@@ -113,7 +101,7 @@ VOID WINAPI RemoteDesktopService::ServiceMain(DWORD, LPWSTR*)
 
             if (pProcessManager)
             {
-                pProcessManager->SignalStop();
+                pProcessManager->SignalStopWhenClientIsConnected();
                 ::WaitForSingleObject(pProcessManager->m_hStopped, INFINITE);
                 pProcessManager = nullptr;
             }
@@ -125,17 +113,10 @@ VOID WINAPI RemoteDesktopService::ServiceMain(DWORD, LPWSTR*)
                 pListener = nullptr;
             }
 
-            for (auto& handle : hEvents)
-            {
-                if (handle != nullptr)
-                {
-                    if (handle != svc.m_StopEvent)
-                    {
-                        CloseHandle(handle);
-                        handle = nullptr;
-                    }
-                }
-            }
+            if (hClientConnected != nullptr)
+                CloseHandle(hClientConnected);
+            if (hClientDisconnected != nullptr)
+                CloseHandle(hClientDisconnected);
 
             svc.m_Status.dwCurrentState = SERVICE_STOPPED;
             SetServiceStatus(svc.m_StatusHandle, &svc.m_Status);
@@ -147,19 +128,7 @@ VOID WINAPI RemoteDesktopService::ServiceMain(DWORD, LPWSTR*)
         {
             Log("Service Main: Client Connected");
             pProcessManager = nullptr;
-            pProcessManager = (ProcessManager*)AfxBeginThread(RUNTIME_CLASS(ProcessManager), 
-                THREAD_PRIORITY_NORMAL,
-                0, CREATE_SUSPENDED);
-
-            if (!pProcessManager)
-            {
-                Log("Service Main: Error in starting process manager thread. Code: " + to_string(GetLastError()));
-                svc.m_Status.dwCurrentState = SERVICE_STOPPED;
-                svc.m_Status.dwWin32ExitCode = GetLastError();
-                SetServiceStatus(svc.m_StatusHandle, &svc.m_Status);
-                WSACleanup();
-                return;
-            }
+            pProcessManager = (ProcessManager*)AfxBeginThread(RUNTIME_CLASS(ProcessManager), THREAD_PRIORITY_NORMAL, 0, CREATE_SUSPENDED);
             pProcessManager->SetSocket(pListener->GetSocket());
             pProcessManager->ResumeThread();
         }
@@ -175,21 +144,4 @@ VOID WINAPI RemoteDesktopService::ServiceMain(DWORD, LPWSTR*)
             SetEvent(hClientDisconnectedListener);
         }
     }
-
-    Log("Service Main: Invalid Event Index.");
-    for (auto& handle : hEvents)
-    {
-        if (handle != nullptr)
-        {
-            if (handle != svc.m_StopEvent)
-            {
-                CloseHandle(handle);
-                handle = nullptr;
-            }
-        }
-    }
-    svc.m_Status.dwCurrentState = SERVICE_STOPPED;
-    svc.m_Status.dwWin32ExitCode = GetLastError();
-    SetServiceStatus(svc.m_StatusHandle, &svc.m_Status);
-    WSACleanup();
 }

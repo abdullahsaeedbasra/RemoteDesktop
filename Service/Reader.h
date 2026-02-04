@@ -29,5 +29,6 @@ private:
 	BOOL m_bRunning;
 	NamedPipe* m_pNamedPipe = nullptr;
 
-	void SendFrameToSocket(const std::vector<BYTE>& jpeg);
+	void SendFrameToSocket(const std::vector<BYTE>& jpeg, uint32_t frameSize);
+	bool SendAll(SOCKET socket, char* buffer, int totalBytes);
 };

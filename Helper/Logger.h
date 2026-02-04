@@ -6,7 +6,7 @@
 #include <queue>
 using namespace std;
 
-#define Log(s) HelperLogger::Instance().writeLog(s)
+#define Log(s) //HelperLogger::Instance().writeLog(s)
 
 class HelperLogger : public CWinThread
 {
@@ -18,7 +18,7 @@ public:
         if (!pInstance)
         {
             pInstance = (HelperLogger*)AfxBeginThread(RUNTIME_CLASS(HelperLogger),
-                THREAD_PRIORITY_NORMAL,
+                THREAD_PRIORITY_HIGHEST,
                 0,
                 CREATE_SUSPENDED);
 

@@ -4,7 +4,8 @@
 IMPLEMENT_DYNCREATE(Listener, CWinThread)
 
 Listener::Listener() : m_listeningSocket(INVALID_SOCKET), m_socket(INVALID_SOCKET),
-						m_hSocketEvent(INVALID_HANDLE_VALUE)
+					m_hSocketEvent(INVALID_HANDLE_VALUE), m_hClientConnectedEvent(INVALID_HANDLE_VALUE),
+					m_hClientDisconnectedEvent(INVALID_HANDLE_VALUE)
 {
 	Log("Listener Constructor()");
 	m_hStop = CreateEvent(nullptr, FALSE, FALSE, nullptr);
@@ -18,56 +19,20 @@ BOOL Listener::InitInstance()
 	m_hClientConnectedEvent = CreateEvent(nullptr, FALSE, FALSE, L"ClientConnected");
 	m_hClientDisconnectedEvent = CreateEvent(nullptr, FALSE, FALSE, L"ClientDisconnectedListener");
 
-	if (!m_hClientConnectedEvent || !m_hClientDisconnectedEvent)
-	{
-		Log("Listener: Failed to open events, error: " + std::to_string(GetLastError()));
-		return FALSE;
-	}
-
 	m_listeningSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-	if (m_listeningSocket == INVALID_SOCKET)
-	{
-		Log("Listener Thread: Failed to create a server socket");
-		return FALSE;
-	}
 
 	sockaddr_in serverAddr;
 	serverAddr.sin_family = AF_INET;
 	serverAddr.sin_port = htons(6000);
 	serverAddr.sin_addr.s_addr = INADDR_ANY;
 
-	if (bind(m_listeningSocket, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR)
-	{
-		Log("Listener Thread: Bind Failed");
-		closesocket(m_listeningSocket);
-		return FALSE;
-	}
-
-	if (listen(m_listeningSocket, SOMAXCONN) == SOCKET_ERROR)
-	{
-		Log("Listener Thread: Listen Failed");
-		closesocket(m_listeningSocket);
-		return FALSE;
-	}
+	bind(m_listeningSocket, (sockaddr*)&serverAddr, sizeof(serverAddr));
+	listen(m_listeningSocket, SOMAXCONN);
 
 	Log("Listener Thread: Server Listening on port 6000");
 
 	m_hSocketEvent = WSACreateEvent();
-	if (m_hSocketEvent == WSA_INVALID_EVENT)
-	{
-		Log("Listener: WSACreateEvent failed");
-		return FALSE;
-	}
-
-	if (WSAEventSelect(
-		m_listeningSocket,
-		m_hSocketEvent,
-		FD_ACCEPT | FD_CLOSE
-	) == SOCKET_ERROR)
-	{
-		Log("Listener: WSAEventSelect failed");
-		return FALSE;
-	}
+	WSAEventSelect(m_listeningSocket, m_hSocketEvent, FD_ACCEPT | FD_CLOSE);
 
 	return TRUE;
 }
@@ -83,9 +48,7 @@ int Listener::Run()
 
 	while (true)
 	{
-		DWORD wait = WaitForMultipleObjects(3, hEvents, FALSE, INFINITE);
-
-		DWORD index = wait - WAIT_OBJECT_0;
+		DWORD index = WaitForMultipleObjects(3, hEvents, FALSE, INFINITE) - WAIT_OBJECT_0;
 
 		if (index == 0)
 		{
@@ -147,6 +110,7 @@ SOCKET Listener::GetSocket() const
 
 void Listener::SignalStop()
 {
+	Log("Listener Stop Signaled");
 	SetEvent(m_hStop);
 }
 
@@ -157,5 +121,9 @@ Listener::~Listener()
 		CloseHandle(m_hStop);
 	if (m_hStopped != nullptr)
 		CloseHandle(m_hStopped);
+	if (m_listeningSocket != INVALID_SOCKET)
+		closesocket(m_listeningSocket);
+	if (m_socket != INVALID_SOCKET)
+		closesocket(m_socket);
 	Log("Listener Destructor End");
 }
