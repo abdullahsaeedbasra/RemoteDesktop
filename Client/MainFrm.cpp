@@ -9,6 +9,10 @@
 #include "MainFrm.h"
 #include "RDCCommunicator.h"
 #include "RDCCommunicatorUDP.h"
+#include "Message.h"
+#include "RDCLogger.h"
+
+#include <memory>
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -21,6 +25,18 @@ IMPLEMENT_DYNAMIC(CMainFrame, CFrameWnd)
 
 BEGIN_MESSAGE_MAP(CMainFrame, CFrameWnd)
 	ON_MESSAGE(WM_NEW_FRAME, OnNewFrame)
+	ON_MESSAGE(WM_NEW_MOUSE_POS, OnNewMousePos)
+	ON_MESSAGE(WM_LEFT_BUTTON_DOWN, OnLeftButtonDown)
+	ON_MESSAGE(WM_LEFT_BUTTON_UP, OnLeftButtonUp)
+	ON_MESSAGE(WM_RIGHT_BUTTON_DOWN, OnRightButtonDown)
+	ON_MESSAGE(WM_RIGHT_BUTTON_UP, OnRightButtonUp)
+	ON_MESSAGE(WM_LEFT_BUTTON_DOUBLE_CLICK, OnLeftButtonDoubleClick)
+	ON_MESSAGE(WM_MOUSE_WHEEL_UP, OnMouseWheelUp)
+	ON_MESSAGE(WM_MOUSE_WHEEL_DOWN, OnMouseWheelDown)
+	ON_MESSAGE(WM_KEY_DOWN, OnKeyDown)
+	ON_MESSAGE(WM_KEY_UP, OnKeyUp)
+
+
 	ON_WM_CREATE()
 	ON_WM_SETFOCUS()
 	ON_WM_SHOWWINDOW()
@@ -56,6 +72,7 @@ int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct)
 		TRACE0("Failed to create view window\n");
 		return -1;
 	}
+	m_wndView.m_pMainFrame = this;
 
 	if (!m_wndToolBar.CreateEx(this, TBSTYLE_FLAT, WS_CHILD | WS_VISIBLE | CBRS_TOP | CBRS_GRIPPER | CBRS_TOOLTIPS | CBRS_FLYBY | CBRS_SIZE_DYNAMIC) ||
 		!m_wndToolBar.LoadToolBar(IDR_MAINFRAME))
@@ -153,5 +170,70 @@ LRESULT CMainFrame::OnNewFrame(WPARAM wparam, LPARAM lparam)
 
 	m_wndView.PostMessage(WM_NEW_FRAME, NULL, NULL);
 
+	return 0;
+}
+
+LRESULT CMainFrame::OnNewMousePos(WPARAM wparam, LPARAM lparam)
+{
+	int percentage_x = (int)(wparam);
+	int percentage_y = (int)(lparam);
+	m_pCommunicator->SendMouseMove(percentage_x, percentage_y);
+
+	return 0;
+}
+
+LRESULT CMainFrame::OnLeftButtonDown(WPARAM wparam, LPARAM lparam)
+{
+	m_pCommunicator->SendLeftButtonDown();
+	return 0;
+}
+
+LRESULT CMainFrame::OnLeftButtonUp(WPARAM wparam, LPARAM lparam)
+{
+	m_pCommunicator->SendLeftButtonUp();
+	return 0;
+}
+
+LRESULT CMainFrame::OnRightButtonDown(WPARAM wparam, LPARAM lparam)
+{
+	m_pCommunicator->SendRightButtonDown();
+	return 0;
+}
+
+LRESULT CMainFrame::OnRightButtonUp(WPARAM wparam, LPARAM lparam)
+{
+	m_pCommunicator->SendRightButtonUp();
+	return 0;
+}
+
+LRESULT CMainFrame::OnLeftButtonDoubleClick(WPARAM wparam, LPARAM lparam)
+{
+	m_pCommunicator->SendLeftButtonDoubleClick();
+	return 0;
+}
+
+LRESULT CMainFrame::OnMouseWheelUp(WPARAM wparam, LPARAM lparam)
+{
+	m_pCommunicator->SendMouseWheelUp();
+	return 0;
+}
+
+LRESULT CMainFrame::OnMouseWheelDown(WPARAM wparam, LPARAM lparam)
+{
+	m_pCommunicator->SendMouseWheelDown();
+	return 0;
+}
+
+LRESULT CMainFrame::OnKeyDown(WPARAM wparam, LPARAM lparam)
+{
+	KeyData* pData = (KeyData*)lparam;
+	m_pCommunicator->SendKeyDown(pData);
+	return 0;
+}
+
+LRESULT CMainFrame::OnKeyUp(WPARAM wparam, LPARAM lparam)
+{
+	KeyData* pData = (KeyData*)lparam;
+	m_pCommunicator->SendKeyUp(pData);
 	return 0;
 }

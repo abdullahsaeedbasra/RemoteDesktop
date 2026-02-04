@@ -8,6 +8,16 @@
 using namespace std;
 
 #define WM_NEW_FRAME (WM_USER + 100)
+#define WM_NEW_MOUSE_POS (WM_USER + 101)
+#define WM_LEFT_BUTTON_DOWN (WM_USER + 102)
+#define WM_LEFT_BUTTON_UP (WM_USER + 103)
+#define WM_RIGHT_BUTTON_DOWN (WM_USER + 104)
+#define WM_RIGHT_BUTTON_UP (WM_USER + 105)
+#define WM_LEFT_BUTTON_DOUBLE_CLICK (WM_USER + 106)
+#define WM_MOUSE_WHEEL_UP (WM_USER + 107)
+#define WM_MOUSE_WHEEL_DOWN (WM_USER + 108)
+#define WM_KEY_DOWN (WM_USER + 109)
+#define WM_KEY_UP (WM_USER + 110)
 
 class RDCCommunicatorUDP;
 class RDCCommunicator;
@@ -50,6 +60,16 @@ protected:
 	afx_msg void OnSetFocus(CWnd *pOldWnd);
 	afx_msg void OnShowWindow(BOOL bShow, UINT nStatus);
 	afx_msg LRESULT OnNewFrame(WPARAM, LPARAM);
+	afx_msg LRESULT OnNewMousePos(WPARAM, LPARAM);
+	afx_msg LRESULT OnLeftButtonDown(WPARAM, LPARAM);
+	afx_msg LRESULT OnLeftButtonUp(WPARAM, LPARAM);
+	afx_msg LRESULT OnRightButtonDown(WPARAM, LPARAM);
+	afx_msg LRESULT OnRightButtonUp(WPARAM, LPARAM);
+	afx_msg LRESULT OnLeftButtonDoubleClick(WPARAM, LPARAM);
+	afx_msg LRESULT OnMouseWheelUp(WPARAM, LPARAM);
+	afx_msg LRESULT OnMouseWheelDown(WPARAM, LPARAM);
+	afx_msg LRESULT OnKeyDown(WPARAM, LPARAM);
+	afx_msg LRESULT OnKeyUp(WPARAM, LPARAM);
 	DECLARE_MESSAGE_MAP()
 
 private:

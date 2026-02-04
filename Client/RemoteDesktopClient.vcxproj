@@ -186,6 +186,7 @@
     <ClInclude Include="ChildView.h" />
     <ClInclude Include="framework.h" />
     <ClInclude Include="MainFrm.h" />
+    <ClInclude Include="Message.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="RDCCommunicator.h" />
     <ClInclude Include="RDCCommunicatorUDP.h" />

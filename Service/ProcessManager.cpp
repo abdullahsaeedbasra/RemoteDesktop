@@ -248,5 +248,6 @@ BOOL ProcessManager::WaitForHelper()
     }
 
     Log("Helper connected to pipe");
+    
     return TRUE;
 }

@@ -6,7 +6,7 @@
 #include <queue>
 using namespace std;
 
-#define Log(s) RDCLogger::Instance().writeLog(s)
+#define Log(s) //RDCLogger::Instance().writeLog(s)
 
 class RDCLogger : public CWinThread
 {
