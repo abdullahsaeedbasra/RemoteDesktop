@@ -187,6 +187,7 @@
     <ClInclude Include="Helper.h" />
     <ClInclude Include="InputReaderThread.h" />
     <ClInclude Include="Logger.h" />
+    <ClInclude Include="Message.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="Pipe.h" />
     <ClInclude Include="ScreenCaptureThread.h" />

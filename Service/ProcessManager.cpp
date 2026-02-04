@@ -12,12 +12,13 @@
 
 IMPLEMENT_DYNCREATE(ProcessManager, CWinThread)
 
-ProcessManager::ProcessManager() : m_socket(INVALID_SOCKET), m_hHelperProcess(INVALID_HANDLE_VALUE)
+ProcessManager::ProcessManager() : m_socket(INVALID_SOCKET)
 {
     Log("Process Manager Constructor()");
 
     m_hStop = CreateEvent(NULL, TRUE, FALSE, NULL);
     m_hStopped = CreateEvent(NULL, TRUE, FALSE, NULL);
+    m_hStopWhenClientIsConnected = CreateEvent(NULL, TRUE, FALSE, NULL);
 
     m_pNamedPipe = new NamedPipe();
 }
@@ -69,30 +70,42 @@ int ProcessManager::Run()
     m_pReader->ResumeThread();
     m_pWriter->ResumeThread();
 
-
-    HANDLE arrHandles[3] = { m_hStop, m_pReader->m_hStopped, m_hHelperProcess };
-    int iIndex = ::WaitForMultipleObjects(2, arrHandles, FALSE, INFINITE) - WAIT_OBJECT_0;
-    if (iIndex == 1)
+    HANDLE hStopEvents[2];
+    hStopEvents[0] = m_hStop;
+    hStopEvents[1] = m_hStopWhenClientIsConnected;
+    int index = ::WaitForMultipleObjects(2, hStopEvents, FALSE, INFINITE) - WAIT_OBJECT_0;
+    if (index == 0)
     {
         m_pReader->SignalStop();
-        ::WaitForSingleObject(m_pReader->m_hStopped, INFINITE);
+        m_pWriter->SignalStop();
+
+        HANDLE hEvents[2] = { m_pReader->m_hStopped, m_pWriter->m_hStopped };
+        ::WaitForMultipleObjects(2, hEvents, TRUE, INFINITE);
+    }
+    else if (index == 1)
+    {
+        m_pReader->SignalStop();
+        m_pWriter->SignalStopWhenClientIsConnected();
+
+        HANDLE hEvents[2] = { m_pReader->m_hStopped, m_pWriter->m_hStopped };
+        ::WaitForMultipleObjects(2, hEvents, TRUE, INFINITE);
     }
 
-    FlushFileBuffers(m_pNamedPipe->handle);
-    DisconnectNamedPipe(m_pNamedPipe->handle);
-    CloseHandle(m_pNamedPipe->handle);
-    m_pNamedPipe->handle = INVALID_HANDLE_VALUE;
-
-    CloseHandle(m_hHelperProcess);
-    m_hHelperProcess = INVALID_HANDLE_VALUE;
-
+    Log("ProcessManager Exiting");
     SetEvent(m_hStopped);
     return 0;
 }
 
 void ProcessManager::SignalStop()
 {
+    Log("Process Manager Stop Signaled");
     SetEvent(m_hStop);
+}
+
+void ProcessManager::SignalStopWhenClientIsConnected()
+{
+    Log("Process Manager Stop Signaled When Client Is Connected");
+    SetEvent(m_hStopWhenClientIsConnected);
 }
 
 void ProcessManager::SetSocket(const SOCKET& socket)
@@ -107,6 +120,10 @@ ProcessManager::~ProcessManager()
         CloseHandle(m_hStop);
     if (m_hStopped != nullptr)
         CloseHandle(m_hStopped);
+    if (m_pNamedPipe->handle != INVALID_HANDLE_VALUE)
+        CloseHandle(m_pNamedPipe->handle);
+    if (m_hStopWhenClientIsConnected != INVALID_HANDLE_VALUE)
+        CloseHandle(m_hStopWhenClientIsConnected);
     if (m_pNamedPipe)
     {
         delete m_pNamedPipe;
@@ -131,13 +148,7 @@ BOOL ProcessManager::StartHelper()
         return false;
 
     HANDLE hPrimaryToken = nullptr;
-    if (!DuplicateTokenEx(
-        hImpersonationToken,
-        TOKEN_ALL_ACCESS,
-        nullptr,
-        SecurityImpersonation,
-        TokenPrimary,
-        &hPrimaryToken))
+    if (!DuplicateTokenEx(hImpersonationToken, TOKEN_ALL_ACCESS, nullptr, SecurityImpersonation, TokenPrimary, &hPrimaryToken))
     {
         CloseHandle(hImpersonationToken);
         return false;
@@ -160,14 +171,14 @@ BOOL ProcessManager::StartHelper()
 
     BOOL ok = CreateProcessAsUserW(
         hPrimaryToken,
-        L"C:\\Projects\\RemoteDesktop\\Helper\\x64\\Debug\\Helper.exe",
+        L"D:\\Visual C++\\RemoteDesktop\\Helper\\x64\\Debug\\Helper.exe",
         nullptr,
         nullptr,
         nullptr,
         FALSE,
         CREATE_UNICODE_ENVIRONMENT,
         env,
-        L"C:\\Projects\\RemoteDesktop\\Helper",
+        L"D:\\Visual C++\\RemoteDesktop\\Helper",
         &si,
         &pi
     );
@@ -178,7 +189,7 @@ BOOL ProcessManager::StartHelper()
     if (!ok)
         return false;
 
-    m_hHelperProcess = pi.hProcess;
+    CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
 
     return true;
@@ -190,17 +201,11 @@ void ProcessManager::CreatePipe()
     SECURITY_ATTRIBUTES sa{};
     sa.nLength = sizeof(sa);
 
-    PSECURITY_DESCRIPTOR psd = (PSECURITY_DESCRIPTOR)LocalAlloc(
-        LPTR, SECURITY_DESCRIPTOR_MIN_LENGTH);
+    PSECURITY_DESCRIPTOR psd = (PSECURITY_DESCRIPTOR)LocalAlloc(LPTR, SECURITY_DESCRIPTOR_MIN_LENGTH);
 
     InitializeSecurityDescriptor(psd, SECURITY_DESCRIPTOR_REVISION);
 
-    SetSecurityDescriptorDacl(
-        psd,
-        TRUE,
-        NULL,
-        FALSE
-    );
+    SetSecurityDescriptorDacl(psd, TRUE, NULL, FALSE);
 
     sa.lpSecurityDescriptor = psd;
     sa.bInheritHandle = FALSE;

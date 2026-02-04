@@ -24,7 +24,7 @@ private:
 	void SendScreenFrame();
 	int GetEncoderClsid(const WCHAR* format, CLSID* pClsid);
 
-	NamedPipe* m_pNamedPipe;
+	NamedPipe* m_pNamedPipe = nullptr;
 	ULONG_PTR m_gdiplusToken;
 	ULONGLONG m_lastFrameTime;
 	UINT m_frameRate;
