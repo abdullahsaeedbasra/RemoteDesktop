@@ -26,7 +26,7 @@ BOOL RDCCommunicator::InitInstance()
 	sockaddr_in serverService;
 	serverService.sin_family = AF_INET;
 
-	InetPton(AF_INET, L"192.168.0.106", &serverService.sin_addr.s_addr);
+	InetPton(AF_INET, L"127.0.0.1", &serverService.sin_addr.s_addr);
 	serverService.sin_port = htons(6000);
 
 	int result = connect(m_socket, (sockaddr*)&serverService, sizeof(serverService));

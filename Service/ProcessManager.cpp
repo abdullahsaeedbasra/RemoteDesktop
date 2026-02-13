@@ -171,14 +171,14 @@ BOOL ProcessManager::StartHelper()
 
     BOOL ok = CreateProcessAsUserW(
         hPrimaryToken,
-        L"D:\\Visual C++\\RemoteDesktop\\Helper\\x64\\Debug\\Helper.exe",
+        L"C:\\Projects\\RemoteDesktop\\Helper\\x64\\Debug\\Helper.exe",
         nullptr,
         nullptr,
         nullptr,
         FALSE,
         CREATE_UNICODE_ENVIRONMENT,
         env,
-        L"D:\\Visual C++\\RemoteDesktop\\Helper",
+        L"C:\\Projects\\RemoteDesktop\\Helper",
         &si,
         &pi
     );
